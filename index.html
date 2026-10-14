@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Astro-fest — Pimpri Chinchwad Science Park</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#0c1130; --gold:#f4b942; --cloud:#f4f2ec; --mist:#aab0d6;
+    box-sizing:border-box;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{
+    background:radial-gradient(ellipse at 20% 0%, #1c2566 0%, transparent 55%), var(--navy);
+    color:var(--cloud);
+    font-family:'IBM Plex Sans', sans-serif;
+    display:flex;align-items:center;justify-content:center;
+    padding:40px 20px;
+  }
+  .wrap{width:100%;max-width:420px;text-align:center;}
+  .kicker{font-size:.78rem;color:var(--mist);}
+  h1{
+    font-family:'Fraunces', serif;font-weight:600;
+    font-size:clamp(1.9rem,8vw,2.4rem);margin:6px 0 30px;
+  }
+  h1 em{font-style:italic;color:var(--gold);}
+  a.card{
+    display:block;text-decoration:none;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.15);
+    border-radius:16px;
+    padding:22px;
+    margin-bottom:16px;
+    text-align:left;
+    transition:border-color .15s, background .15s;
+  }
+  a.card:hover{border-color:var(--gold);background:rgba(255,255,255,.08);}
+  a.card .glyph{font-size:1.6rem;margin-bottom:8px;display:block;}
+  a.card .label{color:var(--cloud);font-weight:600;font-size:1.05rem;margin-bottom:3px;}
+  a.card .sub{color:var(--mist);font-size:.85rem;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <span class="kicker">Pimpri Chinchwad Science Park</span>
+  <h1>Astro <em>fest</em></h1>
+
+  <a class="card" href="upload.html" target="_blank">
+    <span class="glyph">📸</span>
+    <div class="label">Add a sky photo</div>
+    <div class="sub">For visitors — this is what the QR code points to</div>
+  </a>
+
+  <a class="card" href="display.html" target="_blank">
+    <span class="glyph">📺</span>
+    <div class="label">Open the live wall</div>
+    <div class="sub">For the TV screen — leave this open, it updates itself</div>
+  </a>
+</div>
+</body>
+</html>
