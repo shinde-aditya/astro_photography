@@ -238,6 +238,8 @@
       <button class="btn primary" id="dispOnlyBtn" type="button" disabled>Show only selected</button>
       <button class="btn" id="dispAddBtn" type="button" disabled>+ Add selected</button>
       <button class="btn" id="dispRemoveBtn" type="button" disabled>– Remove selected</button>
+      <button class="btn" id="dispTodayBtn" type="button">📅 Always show today</button>
+      <button class="btn" id="dispLast48Btn" type="button">🕒 Last 48 hours</button>
       <button class="btn" id="dispAllBtn" type="button">Show all photos</button>
     </div>
   </div>
@@ -278,7 +280,7 @@
   let photos = [];                       // [{id,name,location,image,date}]
   let byId = new Map();
   let selected = new Set();
-  let display = { mode:'all', ids:[] };  // mirrors settings/display
+  let display = { mode:'all', ids:[], day:'' };  // mirrors settings/display
   let unsubSettings = null;
   let flashMsg = '';
 
@@ -388,7 +390,10 @@
     if(unsubSettings) unsubSettings();
     unsubSettings = SETTINGS.onSnapshot((doc) => {
       const d = doc.exists ? doc.data() : {};
-      display = { mode: d.mode === 'selected' ? 'selected' : 'all', ids: Array.isArray(d.ids) ? d.ids : [] };
+      const dd = (typeof d.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.day)) ? d.day : '';
+      let md = ['selected','day','today','last48'].includes(d.mode) ? d.mode : 'all';
+      if(md === 'day' && !dd) md = 'all';
+      display = { mode: md, ids: Array.isArray(d.ids) ? d.ids : [], day: dd };
       refreshDisplayUI();
     }, (e) => toast('Could not read display settings: ' + friendlyError(e), true));
     loadPhotos();
@@ -450,7 +455,7 @@
       head.append(chkLabel, el('span','daycount', plural(g.items.length,'photo','photos')));
 
       const acts = el('div','dayactions');
-      [['dl-day','⬇ Download day'],['disp-day','📺 Add day to display']].forEach(([act, txt]) => {
+      [['dl-day','⬇ Download day'],['show-day','📺 Show this day live'],['disp-day','+ Add day (fixed list)']].forEach(([act, txt]) => {
         const b = el('button','btn small', txt); b.type = 'button'; b.dataset.act = act; b.dataset.day = g.key;
         acts.append(b);
       });
@@ -546,6 +551,10 @@
     else if(act === 'del'){ deletePhotos([b.closest('.tile').dataset.id]); }
     else if(act === 'dl-day'){ const list = photosOfDay(b.dataset.day); downloadZip(list, b.dataset.day, b); }
     else if(act === 'disp-day'){ addToDisplay(photosOfDay(b.dataset.day).map(p => p.id), 'day'); }
+    else if(act === 'show-day'){
+      if(b.dataset.day === 'unknown'){ toast('These photos have no date, so they cannot be shown by day.', true); return; }
+      setDisplay('day', [], b.dataset.day);
+    }
   });
 
   /* ---------------- DOWNLOAD ---------------- */
@@ -641,15 +650,29 @@
   $('delBtn').addEventListener('click', () => deletePhotos([...selected]));
 
   /* ---------------- DISPLAY CONTROL ---------------- */
-  async function saveDisplay(mode, ids, quiet){
-    await SETTINGS.set({ mode: mode, ids: ids, updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
-    if(!quiet) toast(mode === 'all' ? 'Display now shows all photos.' : 'Display updated — ' + plural(ids.length,'photo','photos') + ' on the wall.');
+  async function saveDisplay(mode, ids, quiet, day){
+    await SETTINGS.set({ mode: mode, ids: ids, day: day || '', updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+    if(quiet) return;
+    if(mode === 'all') toast('Display now shows all photos.');
+    else if(mode === 'today') toast('Display now always shows today\'s photos.');
+    else if(mode === 'last48') toast('Display now shows the last 48 hours — new uploads appear automatically.');
+    else if(mode === 'day') toast('Display now shows ' + day + ' live — new uploads that day appear automatically.');
+    else toast('Display updated — ' + plural(ids.length,'photo','photos') + ' on the wall.');
+  }
+  function todayKey(){ return dayKey(new Date()); }
+  function onDisplay(p){
+    if(display.mode === 'all') return true;
+    if(display.mode === 'selected') return display.ids.indexOf(p.id) !== -1;
+    if(display.mode === 'day') return dayKey(p.date) === display.day;
+    if(display.mode === 'last48') return !!p.date && (Date.now() - p.date.getTime()) <= 48 * 3600 * 1000;
+    return dayKey(p.date) === todayKey();
   }
   function currentDisplaySet(){
-    return display.mode === 'selected' ? new Set(display.ids) : new Set(photos.map(p => p.id));
+    if(display.mode === 'selected') return new Set(display.ids);
+    return new Set(photos.filter(onDisplay).map(p => p.id));
   }
-  async function setDisplay(mode, ids){
-    try{ await saveDisplay(mode, ids); }
+  async function setDisplay(mode, ids, day){
+    try{ await saveDisplay(mode, ids, false, day); }
     catch(e){ toast('Could not update display: ' + friendlyError(e), true); }
   }
   function addToDisplay(ids){
@@ -664,23 +687,38 @@
     setDisplay('selected', [...s]);
   });
   $('dispAllBtn').addEventListener('click', () => setDisplay('all', []));
+  $('dispTodayBtn').addEventListener('click', () => setDisplay('today', []));
+  $('dispLast48Btn').addEventListener('click', () => setDisplay('last48', []));
 
   function refreshDisplayUI(){
     const st = $('displayState');
+    st.textContent = '';
     if(display.mode === 'all'){
-      st.textContent = '';
-      const b = el('b', null, 'Every photo'); st.append('The TV is showing ', b, ' (newest first, live).');
+      st.append('The TV is showing ', el('b', null, 'every photo'), ' (newest first, live).');
+    }else if(display.mode === 'today'){
+      st.append('The TV is ', el('b', null, 'always showing today\'s photos'), ' — new uploads appear automatically, and it switches to the new date at midnight.');
+    }else if(display.mode === 'last48'){
+      st.append('The TV is showing ', el('b', null, 'the last 48 hours'), ' — new uploads appear automatically, and photos older than 48 hours drop off by themselves.');
+    }else if(display.mode === 'day'){
+      const sample = photos.find(p => dayKey(p.date) === display.day);
+      st.append('The TV is showing ', el('b', null, sample ? dayLabel(sample.date) : display.day), ' live — new uploads on that day appear automatically.');
     }else{
       const live = photos.filter(p => display.ids.indexOf(p.id) !== -1).length;
-      st.textContent = '';
       st.append('The TV is showing ', el('b', null, 'only your selected photos'), ' — ' + plural(live || display.ids.length,'photo','photos') + '. New uploads will not appear until you add them.');
     }
-    $('statLive').textContent = display.mode === 'all' ? photos.length
-      : photos.filter(p => display.ids.indexOf(p.id) !== -1).length;
+    $('statLive').textContent = photos.filter(onDisplay).length;
     $('dispAllBtn').disabled = display.mode === 'all';
-    const set = new Set(display.ids);
+    $('dispTodayBtn').disabled = display.mode === 'today';
+    $('dispLast48Btn').disabled = display.mode === 'last48';
     document.querySelectorAll('.tile').forEach((t) => {
-      t.querySelector('.badge').hidden = !(display.mode === 'selected' && set.has(t.dataset.id));
+      const p = byId.get(t.dataset.id);
+      t.querySelector('.badge').hidden = !(display.mode !== 'all' && p && onDisplay(p));
+    });
+    document.querySelectorAll('button[data-act="show-day"]').forEach((b) => {
+      const on = (display.mode === 'day' && display.day === b.dataset.day) ||
+                 (display.mode === 'today' && b.dataset.day === todayKey());
+      b.disabled = on;
+      b.textContent = on ? '✓ Showing live' : '📺 Show this day live';
     });
   }
 

@@ -45,6 +45,12 @@
   a.card .glyph{font-size:1.6rem;margin-bottom:8px;display:block;}
   a.card .label{color:var(--cloud);font-weight:600;font-size:1.05rem;margin-bottom:3px;}
   a.card .sub{color:var(--mist);font-size:.85rem;}
+  a.staff{
+    display:block;text-align:center;margin-top:18px;
+    color:var(--mist);font-size:.8rem;text-decoration:none;opacity:.7;
+    transition:opacity .15s,color .15s;
+  }
+  a.staff:hover{opacity:1;color:var(--gold);}
 </style>
 </head>
 <body>
@@ -64,6 +70,8 @@
     <div class="label">Open the live wall</div>
     <div class="sub">For the TV screen — leave this open, it updates itself</div>
   </a>
+
+  <a class="staff" href="admin.html" target="_blank">Staff sign-in</a>
 </div>
 
 <script>
