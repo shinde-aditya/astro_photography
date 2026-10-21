@@ -736,20 +736,37 @@
     if(!file || !file.type.startsWith('image/')) return;
     const img = new Image();
     const reader = new FileReader();
-    reader.onload = (e) => { img.src = e.target.result; };
     img.onload = () => {
-      const maxW = 1000;
-      const scale = Math.min(1, maxW / img.width);
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      let quality = 0.72;
-      let dataUrl = canvas.toDataURL('image/jpeg', quality);
-      while(dataUrl.length > 700000 && quality > 0.3){
-        quality -= 0.1;
-        dataUrl = canvas.toDataURL('image/jpeg', quality);
+      // Best-quality encode that still fits in one Firestore document (~1 MB).
+      // 1) If the original file already fits, send it untouched (zero re-compression).
+      // 2) Otherwise keep full resolution as long as possible (TV is 1920 wide) and
+      //    only lower JPEG quality slowly, from 0.95 down to a floor of 0.80.
+      const LIMIT = 960000;                       // max length of the data URL
+      const original = img.src;
+      let dataUrl = null;
+      if(/^data:image\/(jpeg|png|webp);base64,/.test(original) && original.length <= LIMIT){
+        dataUrl = original;
+      } else {
+        const longEdge = Math.max(img.naturalWidth, img.naturalHeight);
+        const edges = [3840, 3000, 2560, 2200, 1920, 1600, 1280].filter(e => e < longEdge);
+        edges.unshift(longEdge);                  // try the full original size first
+        const qualities = [0.95, 0.92, 0.88, 0.84, 0.80];
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        outer:
+        for(const edge of edges){
+          const scale = Math.min(1, edge / longEdge);
+          canvas.width = Math.round(img.naturalWidth * scale);
+          canvas.height = Math.round(img.naturalHeight * scale);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          for(const q of qualities){
+            const d = canvas.toDataURL('image/jpeg', q);
+            if(d.length <= LIMIT){ dataUrl = d; break outer; }
+          }
+        }
+        if(!dataUrl) dataUrl = canvas.toDataURL('image/jpeg', 0.7);   // last resort
       }
       compressedDataUrl = dataUrl;
       preview.src = dataUrl;
@@ -759,10 +776,11 @@
       document.querySelector('.hint-text').textContent = 'Tap to change photo';
       document.querySelector('.hint-sub').style.display='none';
     };
+    reader.onload = (e) => { img.src = e.target.result; };
     reader.readAsDataURL(file);
   }
 
-  // compress image client-side, keep under ~700KB so it fits one Firestore doc
+  // high-quality encode, sized to fit one Firestore doc (~1 MB)
   photoInput.addEventListener('change', () => handleFile(photoInput.files[0]));
 
   // drag & drop support (desktop kiosks / laptops)
