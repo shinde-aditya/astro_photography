@@ -22,6 +22,7 @@
   };
   const COLLECTION_NAME = "skyPhotos";
   const UPLOAD_URL = "https://r0vx6rbh-5500.inc1.devtunnels.ms/upload.html";
+  const DEFAULT_MODE = 'last48'; // used when admin has not chosen a mode yet: 'all' | 'today' | 'last48'
   const SLIDE_SECONDS = 7;      // how long each photo stays on screen
   const MAX_PHOTOS = 150;       // how many recent photos to keep in rotation
   const FIT_MODE = 'smart';     // 'smart' = fill screen when little is cropped, else show whole photo
@@ -243,11 +244,15 @@
   const capLoc = document.getElementById('capLoc');
 
   let allPhotos = [];                    // newest photos, updated live
-  let settings = { mode: 'all', ids: [], day: '' }; // set from admin.html (mode: all | selected | day | today | last48)
+  let settings = { mode: DEFAULT_MODE, ids: [], day: '' }; // set from admin.html (mode: all | selected | day | today | last48)
   let settingsReady = false;
   let extra = {};                        // selected photos older than the live window
   let photos = [];                       // what is on screen right now
   let currentIndex = 0;
+  let currentId = null;                  // id of the photo on screen now
+  let lastListMode = null;
+  let showNext = [];                     // new photos waiting to be shown once, newest first
+  let resumeId = null;                   // photo to continue with after the new ones (no repeats)
   let slideTimer = null;
   let progressTimer = null;
   let buildToken = 0;
@@ -327,6 +332,11 @@
   }
 
   function showPhotos(list, mode){
+    const prevIds = new Set(photos.map(p => p.id));
+    const hadPhotos = prevIds.size > 0 && lastListMode === mode;
+    const hasNew = hadPhotos && list.some(p => !prevIds.has(p.id));
+    if(!hadPhotos){ showNext = []; resumeId = null; }
+    lastListMode = mode;
     photos = list;
     const n = photos.length;
     if(mode === 'selected') countLabel.textContent = n + (n === 1 ? ' featured photo' : ' featured photos');
@@ -348,7 +358,28 @@
     }
     emptyView.style.display = 'none';
     if(!slideTimer){ currentIndex = 0; renderCurrent(); startTimer(); }
-    else if(currentIndex >= n){ currentIndex = 0; }
+    else if(hasNew){
+      // new photo(s) arrived: show the newest right away, queue any others,
+      // then carry on from where the slideshow was (no already-shown photos repeat)
+      const fresh = list.filter(p => !prevIds.has(p.id)).sort((a, b) => toTime(b) - toTime(a));
+      const freshIds = new Set(fresh.map(p => p.id));
+      if(!resumeId){
+        const cur = photos.findIndex(p => p.id === currentId);
+        if(cur >= 0){
+          for(let k = 1; k <= n; k++){
+            const cand = photos[(cur + k) % n];
+            if(!freshIds.has(cand.id) && cand.id !== currentId){ resumeId = cand.id; break; }
+          }
+        }
+      }
+      showNext = fresh.slice(1).map(p => p.id).concat(showNext.filter(id => !freshIds.has(id)));
+      currentIndex = photos.findIndex(p => p.id === fresh[0].id);
+      renderCurrent(); startTimer();
+    }else{
+      // keep showing the same photo even if the list shifted (deletes, mode refresh)
+      const i = photos.findIndex(p => p.id === currentId);
+      currentIndex = i >= 0 ? i : (currentIndex >= n ? 0 : currentIndex);
+    }
   }
 
   // live photos
@@ -366,20 +397,22 @@
   db.collection('settings').doc('display').onSnapshot((doc) => {
     const d = doc.exists ? doc.data() : {};
     const day = (typeof d.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.day)) ? d.day : '';
-    let mode = ['selected', 'day', 'today', 'last48'].includes(d.mode) ? d.mode : 'all';
-    if(mode === 'day' && !day) mode = 'all';
+    let mode = ['all', 'selected', 'day', 'today', 'last48'].includes(d.mode) ? d.mode : DEFAULT_MODE;
+    if(mode === 'day' && !day) mode = DEFAULT_MODE;
     settings = { mode: mode, ids: Array.isArray(d.ids) ? d.ids : [], day: day };
     extra = {};
     settingsReady = true;
     rebuild();
   }, () => {
-    settingsReady = true;     // can't read settings: fall back to showing everything
+    settings = { mode: DEFAULT_MODE, ids: [], day: '' };   // can't read settings: use the safe default, not everything
+    settingsReady = true;
     rebuild();
   });
 
   function renderCurrent(){
     if(!photos.length) return;
     const p = photos[currentIndex % photos.length];
+    currentId = p.id;
     const slide = document.createElement('div');
     slide.className = 'slide';
     slide.innerHTML = `<img class="bg" src="${p.image}" alt=""><img class="photo" src="${p.image}" alt="Sky photo">`;
@@ -405,12 +438,26 @@
     oldSlides.forEach(s => setTimeout(() => s.remove(), 1200));
   }
 
+  // order: new photos first (once), then continue where we left off, then normal rotation
+  function nextIndex(){
+    while(showNext.length){
+      const i = photos.findIndex(p => p.id === showNext.shift());
+      if(i >= 0) return i;
+    }
+    if(resumeId){
+      const i = photos.findIndex(p => p.id === resumeId);
+      resumeId = null;
+      if(i >= 0) return i;
+    }
+    return (currentIndex + 1) % photos.length;
+  }
+
   function startTimer(){
     clearInterval(slideTimer);
     clearInterval(progressTimer);
     tickProgress();
     slideTimer = setInterval(() => {
-      currentIndex = (currentIndex + 1) % photos.length;
+      currentIndex = nextIndex();
       renderCurrent();
       tickProgress();
     }, SLIDE_SECONDS * 1000);

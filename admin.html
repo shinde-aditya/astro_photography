@@ -23,6 +23,7 @@
   };
   const COLLECTION_NAME = "skyPhotos";
   const ADMIN_EMAIL = "adityamshinde123@gmail.com";   // e.g. "you@gmail.com"
+  const DEFAULT_MODE = "last48";                 // must match DEFAULT_MODE in display.html
   const MAX_LOAD = 1000;                          // newest photos loaded into this page
 </script>
 
@@ -280,7 +281,7 @@
   let photos = [];                       // [{id,name,location,image,date}]
   let byId = new Map();
   let selected = new Set();
-  let display = { mode:'all', ids:[], day:'' };  // mirrors settings/display
+  let display = { mode:DEFAULT_MODE, ids:[], day:'' };  // mirrors settings/display
   let unsubSettings = null;
   let flashMsg = '';
 
@@ -320,6 +321,7 @@
     appView.hidden = true;
     loginView.hidden = false;
     if(unsubSettings){ unsubSettings(); unsubSettings = null; }
+    if(typeof unsubPhotos !== 'undefined' && unsubPhotos){ unsubPhotos(); unsubPhotos = null; }
     photos = []; byId = new Map(); selected = new Set();
     groupsEl.textContent = '';
     const m = $('loginMsg');
@@ -391,19 +393,20 @@
     unsubSettings = SETTINGS.onSnapshot((doc) => {
       const d = doc.exists ? doc.data() : {};
       const dd = (typeof d.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.day)) ? d.day : '';
-      let md = ['selected','day','today','last48'].includes(d.mode) ? d.mode : 'all';
-      if(md === 'day' && !dd) md = 'all';
+      let md = ['all','selected','day','today','last48'].includes(d.mode) ? d.mode : DEFAULT_MODE;
+      if(md === 'day' && !dd) md = DEFAULT_MODE;
       display = { mode: md, ids: Array.isArray(d.ids) ? d.ids : [], day: dd };
       refreshDisplayUI();
     }, (e) => toast('Could not read display settings: ' + friendlyError(e), true));
     loadPhotos();
   }
 
-  async function loadPhotos(){
-    const btn = $('refreshBtn');
-    btn.disabled = true; btn.textContent = 'Loading…';
-    try{
-      const snap = await PHOTOS.orderBy('createdAt','desc').limit(MAX_LOAD).get();
+  let unsubPhotos = null;
+
+  // Live listener: the page updates by itself whenever a photo is added or deleted.
+  function loadPhotos(){
+    if(unsubPhotos){ unsubPhotos(); unsubPhotos = null; }
+    unsubPhotos = PHOTOS.orderBy('createdAt','desc').limit(MAX_LOAD).onSnapshot((snap) => {
       photos = snap.docs.map((d) => {
         const p = d.data();
         return {
@@ -420,11 +423,7 @@
       $('statHint').textContent = photos.length >= MAX_LOAD
         ? 'Showing the newest ' + MAX_LOAD + ' photos. Delete old ones to see earlier uploads. People are counted by unique name.'
         : "Visitors don't sign in, so \"people\" is counted by unique name (not case-sensitive).";
-    }catch(e){
-      toast('Could not load photos: ' + friendlyError(e), true);
-    }finally{
-      btn.disabled = false; btn.textContent = '↻ Refresh';
-    }
+    }, (e) => toast('Could not load photos: ' + friendlyError(e), true));
   }
   $('refreshBtn').addEventListener('click', loadPhotos);
 
